@@ -1,1 +1,141 @@
+;=========================================================================
+;					Proyecto Final ISE
+;					"Sistema de Votacion"
+; Por: 
+;	* Alejandro Ballón
+;	* Ricardo Temoche
+;	* Mauricio Rivera
+;	* Alex Rodríguez
+;	* Eduardo Guerrero
+; 
+;==========================================================================
+.DEF habilitar_votacion=0 
+;valor_display=0 
+;escrutinio=0
+;habilitador_p0=0
+;tiempo_p0=0
+;cronometro=30(seg)
+;total_de_votaciones=0
+;veces_presionado_p0=0 
+;contA=0
+;contB
+;contb
+;contn
+;cronometro_general
+;condicion_display
+;Volt
+;Valor_ADC
+
+;Vector de interrupciones
+.ORG 0x002A
+	JMP ISR_ADC
+
+.ORG 0x0034
+
+Inicio:
+;================ Definiendo Pila ==================
+	LDI R16, LOW(RAMEND)
+	OUT SPL, R16 
+	LDI R16, HIGH(RAMEND)
+	OUT SPH, R16
+
+;=========== Configuracion de Puertos ==============
+	
+
+;========== Inicialización de variables ============
+	
+	
+;=========Configuracion de Interrupciones===========
+;P0_ISR
+
+;P1_ISR
+
+;P2_ISR
+
+;P3_ISR
+
+;P4_ISR
+
+;SW_ISR
+
+;--------------------ADC_ISR------------------------
+;ADMUX: ADC Multiplexor Selection Register 
+;	[REFS1, REFS2, ADLAR, - , MUX3, MUX2, MUX1, MUX0] 
+;	* REFS[1:0]= 11 --> Volt Interno 1.1V con capacitor en pin AREF
+;	* ADLAR= 0 --> Se quiere 10 bits de presicion
+;	* MUX[3:0]= 0000 --> Usar la entrada ADC0
+	LDI R16, 0b11000000
+	STS ADMUX, R16
+
+;ADCSRA: ADC Control and Status Register A 
+;	[ADEN, ADSC, ADATE, ADIF, ADIE, ADPS2, ADPS1, ADPS0] 
+;	* ADEN= 1 --> Activar ADC
+;	* ADSC= 1 --> Empezar Conversion
+;	* ADATE= 1 --> Activar autotriggering
+;	* ADIF --> Interrupt Flag (No se quiere escribir)
+;	* ADIE = 1 -> Activar interrupcion
+;	* ADPS[2:0] = 000 --> Factor de Prescaler=2
+	LDI R16, 0b11101000
+	STS ADCSRA, R16
+
+;ADCSRB: ADC Control and Status Register B
+;	[-, ACME , -, -, -, ADTS2, ADTS1, ADTS0] 
+;	* ADPS[2:0] = 000 --> Free Running Mode
+	CLR R16; Porque el registro guarda el valor 0
+	STS ADCSRA, R16 
+
+;Timer_1s_ISR
+
+;Timer_P0_Presionado
+
+;========= Habilitacion de interrupcion global ============
+	SEI
+
+;==========================================================
+;                       Subrutinas
+;==========================================================
+
+;------------------------ISR_P0---------------------------
+;Registros Modificados =>
+;Registros de Entrada =>
+
+;------------------------ISR_P0---------------------------
+;Registros Modificados =>
+;Registros de Entrada =>
+
+;------------------------ISR_P0---------------------------
+;Registros Modificados =>
+;Registros de Entrada =>
+
+;------------------------ISR_P0---------------------------
+;Registros Modificados =>
+;Registros de Entrada =>
+
+;------------------------ISR_P0---------------------------
+;Registros Modificados =>
+;Registros de Entrada =>
+
+;------------------------ISR_SW---------------------------
+;Registros Modificados =>
+;Registros de Entrada =>
+
+;------------------------ISR_ADC--------------------------
+;Registros Modificados =>
+;Registros de Entrada =>
+
+;---------------------ISR_Timer_1s------------------------
+;Registros Modificados =>
+;Registros de Entrada =>
+
+;-----------------ISR_Timer_P0_Presionado-----------------
+;Registros Modificados =>
+;Registros de Entrada =>
+
+;------------------------BCD2BIN7SEG----------------------
+;Registros Modificados =>
+;Registros de Entrada =>
+
+Main:
+    inc r16
+    rjmp Main
 
