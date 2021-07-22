@@ -1,6 +1,6 @@
 ;=========================================================================
-;					Proyecto Final ISE
-;					"Sistema de Votacion"
+;			Proyecto Final ISE
+;			"Sistema de Votacion"
 ; Por: 
 ;	* Alejandro Ballón
 ;	* Ricardo Temoche
@@ -9,22 +9,25 @@
 ;	* Eduardo Guerrero
 ; 
 ;==========================================================================
+
 .DEF habilitar_votacion=R16
 .DEF valor_display=R17 
 .DEF escrutinio=R18
 .DEF habilitador_p0=R19
-.DEF tiempo_p0
+;.DEF tiempo_p0
 .DEF cronometro=R20
 .DEF total_de_votaciones=R21
-.DEF veces_presionado_p0
+;.DEF veces_presionado_p0
 .DEF contA=R22
 .DEF contB=R23
 .DEF contb=R24
 .DEF contn=R25
-.DEF cronometro_general=Z;(R30 y R31)
-.DEF condicion_display
-.DEF Volt
-.DEF Valor_ADC=Y;(R28 y R29)
+.DEF cronometro_general_HIGH=R31
+.DEF cronometro_general_LOW=R30
+;.DEF condicion_display
+;.DEF Volt
+.DEF Valor_ADC_HIGH=R29;(R28 y R29)
+.DEF Valor_ADC=R28
 
 ;Vector de interrupciones
 .ORG 0x002A
@@ -34,11 +37,10 @@
 
 Inicio:
 ;================ Definiendo Pila ==================
-	LDI R16, LOW(RAMEND)
-	OUT SPL, R16 
-	LDI R16, HIGH(RAMEND)
-	OUT SPH, R16
-
+	LDI R26, LOW(RAMEND)
+	OUT SPL, R26 
+	LDI R26, HIGH(RAMEND)
+	OUT SPH, R26
 ;=========== Configuracion de Puertos ==============
 	
 
@@ -80,9 +82,10 @@ Inicio:
 
 ;ADCSRB: ADC Control and Status Register B
 ;	[-, ACME , -, -, -, ADTS2, ADTS1, ADTS0] 
+;	* ACME = 1 --> Nose si esta bien PREGUNTAR
 ;	* ADPS[2:0] = 000 --> Free Running Mode
-	CLR R16; Porque el registro guarda el valor 0
-	STS ADCSRA, R16 
+	LDI R16, 0b01000000; Porque el registro guarda el valor 0
+	STS ADCSRB, R16  
 
 ;Timer_1s_ISR
 
@@ -99,19 +102,19 @@ Inicio:
 ;Registros Modificados =>
 ;Registros de Entrada =>
 
-;------------------------ISR_P0---------------------------
+;------------------------ISR_P1---------------------------
 ;Registros Modificados =>
 ;Registros de Entrada =>
 
-;------------------------ISR_P0---------------------------
+;------------------------ISR_P2---------------------------
 ;Registros Modificados =>
 ;Registros de Entrada =>
 
-;------------------------ISR_P0---------------------------
+;------------------------ISR_P3---------------------------
 ;Registros Modificados =>
 ;Registros de Entrada =>
 
-;------------------------ISR_P0---------------------------
+;------------------------ISR_P4---------------------------
 ;Registros Modificados =>
 ;Registros de Entrada =>
 
@@ -120,9 +123,29 @@ Inicio:
 ;Registros de Entrada =>
 
 ;------------------------ISR_ADC--------------------------
-;Registros Modificados =>
+;Registros Modificados => ValorADC_HIGH, ValorADC_LOW
 ;Registros de Entrada =>
 
+ISR_ADC	:
+	PUSH R26
+	IN R26, SREG
+	PUSH R26
+
+	LDS ValorADC_HIGH, ADCH
+	LDS ValorADC_LOW, ADCL
+	
+	CPI ValorADC_HIGH, 0x01
+	BRSH Mayor2V
+	CPI ValorADC_LOW, 0xAF
+	BRSH Mayor2V
+
+	STS 
+	
+
+	POP R26
+	OUT SREG, R26
+	POP R26
+	RETI
 ;---------------------ISR_Timer_1s------------------------
 ;Registros Modificados =>
 ;Registros de Entrada =>
