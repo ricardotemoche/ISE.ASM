@@ -9,22 +9,22 @@
 ;	* Eduardo Guerrero
 ; 
 ;==========================================================================
-.DEF habilitar_votacion=0 
-;valor_display=0 
-;escrutinio=0
-;habilitador_p0=0
-;tiempo_p0=0
-;cronometro=30(seg)
-;total_de_votaciones=0
-;veces_presionado_p0=0 
-;contA=0
-;contB
-;contb
-;contn
-;cronometro_general
-;condicion_display
-;Volt
-;Valor_ADC
+.DEF habilitar_votacion=R16
+.DEF valor_display=R17 
+.DEF escrutinio=R18
+.DEF habilitador_p0=R19
+.DEF tiempo_p0
+.DEF cronometro=R20
+.DEF total_de_votaciones=R21
+.DEF veces_presionado_p0
+.DEF contA=R22
+.DEF contB=R23
+.DEF contb=R24
+.DEF contn=R25
+.DEF cronometro_general=Z;(R30 y R31)
+.DEF condicion_display
+.DEF Volt
+.DEF Valor_ADC=Y;(R28 y R29)
 
 ;Vector de interrupciones
 .ORG 0x002A
