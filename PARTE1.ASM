@@ -124,7 +124,7 @@ Inicio:
 
 ;------------------------ISR_ADC--------------------------
 ;Registros Modificados => ValorADC_HIGH, ValorADC_LOW
-;Registros de Entrada =>
+;Registros de Usados => R26
 
 ISR_ADC	:
 	PUSH R26
@@ -135,13 +135,34 @@ ISR_ADC	:
 	LDS ValorADC_LOW, ADCL
 	
 	CPI ValorADC_HIGH, 0x01
-	BRSH Mayor2V
+	BRSH MayorA2V
 	CPI ValorADC_LOW, 0xAF
-	BRSH Mayor2V
+	BRSH MayorA2V
 
-	STS 
-	
+	CLR R26
+	STS PCMSK0, R26; Deshabilitando interrupciones por PCINT0, PCINT1, PCINT2 y PCINT3 (P1, P2, P3, P4)
+	CLR R26
+	OUT EIMSK, R26; Deshabilitando interrupciones por INT0 y INT1 (P0, SW)
+	;falta agregar valor_display=8;
+	RJMP ISR_ADC_End
 
+MayorA2V:
+	LDI R26, 0b00001111
+	STS PCMSK0, R26; Deshabilitando interrupciones por PCINT0, PCINT1, PCINT2 y PCINT3 (P1, P2, P3, P4)
+	LDI R26, 0b00000010
+	OUT EIMSK, R26; Deshabilitando interrupciones por INT0 y INT1 (P0, SW)
+
+	CPI escrutinio, 0
+	BRNE deshabilitar_SW
+	LDI R26, 0b00000011
+	OUT EIMSK, R26;
+	RJMP ISR_ADC_End
+
+deshabilitar_SW:
+	LDI R26, 0b00000010	 
+	OUT EIMSK, R26;
+
+ISR_ADC_End:
 	POP R26
 	OUT SREG, R26
 	POP R26
