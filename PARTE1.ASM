@@ -42,8 +42,16 @@ Inicio:
 	LDI R26, HIGH(RAMEND)
 	OUT SPH, R26
 ;=========== Configuracion de Puertos ==============
+;Puertos de Entrada: PD2, PD3, PB0, PB1, PB2, PB3, PC0
+;Puertos de Salida: PD0, PD1, PD[4:7], PB[4:7]
+	LDI R26,  0b11110011
+	OUT DDRD, R26
 	
-
+	LDI R26, 0b11110000
+	OUT DDRB, R26
+	
+	LDI R26, 0b00000001
+	OUT DDRC, R26
 ;========== Inicialización de variables ============
 	
 	
@@ -211,7 +219,6 @@ CENTENAS:		.BYTE 1
 .EQU  f = 2 ; PIND6
 .EQU  g = 1 ; PIND7
 
-
 .EQU DIG3 = 2 ; PINB7
 .EQU DIG2 = 1 ; PINB6
 .EQU DIG1 = 0 ; PINB5
@@ -229,35 +236,6 @@ CENTENAS:		.BYTE 1
 ;.ENDMACRO
 
 main:
-	; Reiniciar SP
-	LDI temp, LOW(RAMEND)
-	OUT SPL, temp
-	LDI temp, HIGH(RAMEND)
-	OUT SPH, temp
-
-	; Configurar I/O
-	LDI temp, 0x0F
-	OUT DDRB, temp
-	; PINB0 <- P4
-	; PINB1 <- P3
-	; PINB2 <- P2
-	; PINB3 <- P1
-	; PINB4 -> display d
-	; PINB5 -> display DIG1 
-	; PINB6 -> display DIG2
-	; PINB7 -> display DIG3
-
-	LDI temp, 0xF3
-	OUT DDRD, temp
-	; PIND0 -> display a
-	; PIND1 -> display b
-	; PIND2 <- P0
-	; PIND3 <- SW0
-	; PIND4 -> display c
-	; PIND5 -> display e
-	; PIND6 -> display f
-	; PIND7 -> display g
-
 	CLR temp
 	OUT PORTB, temp ; Set Outputs LOW, disable input pullups
 	OUT PORTD, temp ; Set Outputs LOW, disable input pullups
