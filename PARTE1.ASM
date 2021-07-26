@@ -36,6 +36,15 @@
 	;RESET
 .ORG 0x1A
    	JMP Timer_1s_ISR 
+.ORG 0x0002
+	JMP P0_ISR
+.ORG 0x0004
+	JMP SW_ISR
+.ORG 0x0006; <===========================REVISAR ESTO
+	JMP P1_ISR; Ver esto pq todos son PCINT0
+	JMP P2_ISR
+	JMP P3_ISR
+	JMP P4_ISR
 .ORG 0x2A
 	JMP ISR_ADC
 
