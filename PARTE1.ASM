@@ -1,6 +1,6 @@
 ;=========================================================================
-;			Proyecto Final ISE
-;			"Sistema de Votacion"
+;					Proyecto Final ISE
+;					"Sistema de Votacion"
 ; Por: 
 ;	* Alejandro Ballón
 ;	* Ricardo Temoche
@@ -9,28 +9,34 @@
 ;	* Eduardo Guerrero
 ; 
 ;==========================================================================
-
+.CSEG
 .DEF habilitar_votacion=R16
-.DEF valor_display=R17 
+.DEF veces_presionado_p0=R17
 .DEF escrutinio=R18
 .DEF habilitador_p0=R19
-;.DEF tiempo_p0
-.DEF cronometro=R20
-.DEF total_de_votaciones=R21
-;.DEF veces_presionado_p0
-.DEF contA=R22
-.DEF contB=R23
-.DEF contb=R24
-.DEF contn=R25
-.DEF cronometro_general_HIGH=R31
-.DEF cronometro_general_LOW=R30
+; tiempo_p0 = R27 (Solo se utiliza al incio)
+.DEF cont_timer_individual=R20
+.DEF cont_timer_total=R21
+.DEF valor_del_display=R22
+.DEF DIG1=R23
+.DEF DIG2=R24
+.DEF DIG3=R25
+;.DEF contA
+;.DEF contB
+;.DEF contblanco
+;.DEF contn
+;R26 = registro temporal
+;total_de_votaciones=R27
 ;.DEF condicion_display
-;.DEF Volt
-.DEF Valor_ADC_HIGH=R29;(R28 y R29)
-.DEF Valor_ADC=R28
+; ValorADC_HIGH=R29;(R28 y R29) 
+; ValorADC_LOW=R28
 
 ;Vector de interrupciones
-.ORG 0x002A
+;.ORG 0x00  <======================= SALE ERROR
+	;RESET
+.ORG 0x1A
+   	JMP Timer_1s_ISR 
+.ORG 0x2A
 	JMP ISR_ADC
 
 .ORG 0x0034
@@ -41,6 +47,7 @@ Inicio:
 	OUT SPL, R26 
 	LDI R26, HIGH(RAMEND)
 	OUT SPH, R26
+
 ;=========== Configuracion de Puertos ==============
 ;Puertos de Entrada: PD2, PD3, PB0, PB1, PB2, PB3, PC0
 ;Puertos de Salida: PD0, PD1, PD[4:7], PB[4:7]
@@ -52,9 +59,16 @@ Inicio:
 	
 	LDI R26, 0b00000001
 	OUT DDRC, R26
+
 ;========== Inicialización de variables ============
-	
-	
+
+Definicion_RAM_Display:
+	LDI ZH, HIGH(0x100)
+	LDI ZL, LOW(0x100)
+
+Definicion_RAM_Timer_General:
+	LDI R26, 60
+	ST Z, R26	//R26="D"   guarda _ en 0x100
 ;=========Configuracion de Interrupciones===========
 ;P0_ISR
 
@@ -93,11 +107,39 @@ Inicio:
 ;	* ACME = 1 --> Nose si esta bien PREGUNTAR
 ;	* ADPS[2:0] = 000 --> Free Running Mode
 	LDI R16, 0b01000000; Porque el registro guarda el valor 0
-	STS ADCSRB, R16  
+	STS ADCSRB, R16 
 
-;Timer_1s_ISR
+;------------------Timer_1s_ISR------------------------
+; Configuracion de registros del Timer_1
 
-;Timer_P0_Presionado
+; Configuracion del Prescaler
+LDI R26, 0b0000_0101
+STS TCCR1B, R26		; Prescaler de 1024 (16 MHz/1024 = 15625 Hz = 64 us)
+
+; Configuración del registro de cuenta
+; MAX	= FFFF = 65535
+; TCNT1 = C2F6 = 49910
+; Tiempo antes del overflow = (65535 - 49910)*64 us = 1 s
+LDI R26,0xC2
+STS TCNT1H,R26
+LDI R26,0xF6
+STS TCNT1L,R26
+ 
+; Configuracion de la mascara del Timer_1
+LDI R26, 0b0000_0001
+STS TIMSK1, R26		; Se habilita la interrupción por overflow del Timer_1
+
+
+;-----------------Timer_P0_Presionado--------------------       		
+
+	LDI R26, 0b0000_0001
+	STS TIMSK1, R26                 		; Interrupción por Overflow
+	
+	;Overflow cada 10ms a una frecuencia de 1MHz
+	;para 10ms -> 10=0x0A
+	;valor_max=255, valor_10ms=10, valor_inicial=255-10=245
+	LDI R26, 0xF5      ;valor_inicial
+	STS TCNT1, R26
 
 ;========= Habilitacion de interrupcion global ============
 	SEI
@@ -139,12 +181,12 @@ ISR_ADC	:
 	IN R26, SREG
 	PUSH R26
 
-	LDS ValorADC_HIGH, ADCH
-	LDS ValorADC_LOW, ADCL
+	LDS YH, ADCH ;R29 -> ValorADC_HIGH
+	LDS YL, ADCL ;R28 -> ValorADC_LOW
 	
-	CPI ValorADC_HIGH, 0x01
+	CPI YH, 0x01
 	BRSH MayorA2V
-	CPI ValorADC_LOW, 0xAF
+	CPI YL, 0xAF
 	BRSH MayorA2V
 
 	CLR R26
@@ -176,316 +218,618 @@ ISR_ADC_End:
 	POP R26
 	RETI
 ;---------------------ISR_Timer_1s------------------------
-;Registros Modificados =>
-;Registros de Entrada =>
+; Registros Modificados => cronomtero = cont_timer_individual, ZL, ZH
+; Registros de Entrada => R26
+; Obs => veces_presionado_p0 no está definido
 
-;-----------------ISR_Timer_P0_Presionado-----------------
-;Registros Modificados =>
-;Registros de Entrada =>
+Timer_1s_ISR:
+	PUSH R26
+	IN R26, SREG
+	PUSH R26
+
+	PUSH ZH
+	PUSH ZL
+
+	DEC cont_timer_individual ; cont_timer_individual--; 
+
+	CPI habilitador_p0, 0	; if (habilitadorP0==0)
+	BREQ habilitador_p0_ES_0 
+	; habilitador_p0 ES DIFERENTE A 0
+
+	LDI ZH, 0x01
+	LDI ZL, 0x00
+	LD R26, Z; Extrae el valor 60 (1 minuto) de 0x0100
+	DEC R26
+
+	CPI R26, 0
+	BRNE No_ha_pasado_1min
+		LDI R26, 60
+		DEC cont_timer_total
+
+No_ha_pasado_1min:
+	ST Z, R26 ;Z mantiene el valor 0x0112
+	CPI cont_timer_total, 0	; if (cont_timer_total == 0) ////////////
+	BREQ cont_timer_total_ES_0	
+	; cont_timer_total ES DIFERENTE A 0
+
+	CPI cont_timer_individual, 0	; if(cont_timer_individual == 0)
+	BREQ cont_individual_ES_0
+	; cont_individual ES DIFERENTE DE 0
+	; valor_del_display=7; <-----
+
+	cont_individual_ES_0:
+		INC contn 
+		LDI cont_timer_individual, 30
+		LDI habilitador, 0 ;///////////////////////
+
+	cont_timer_total_ES_0:
+		LDI escrutinio, 1
+		; Timer_1s_Stop();
+		LDI R26, 0b0000_0000
+   	    ;STS TCCR1B, R26 ; No clock source (Timer/Counter stopped)
+		; valor_del_display=4; <-----
+
+
+	habilitador_p0_ES_0:
+		CPI cont_timer_individual, 0	; if(cont_timer_individual == 0) 1ro
+		BREQ  cont_timer_individual_ES_0
+		; cont_timer_individual ES DIFERENTE A 0
+
+		; valor_del_display=7; <-----
+
+		cont_timer_individual_ES_0:
+			LDI veces_presionado_p0, 0 /////////////////
+			LDI cont_timer_individual, 30
+
+			; valor_del_display=7; <-----
+
+; Se reinicia el Timer_1
+LDI R26,0xC2
+STS TCNT1H,R26
+LDI R26,0xF6
+STS TCNT1L,R26
+	
+	POP ZL
+	POP ZH
+
+	POP R26
+	OUT SREG, R26
+	POP R26
+RETI
+
+;-----------------ISR_Timer_P0_Presionado----------------- 
+;Registros de Usados => (registro que tome tiempo_p0), R26 y TCNT
+;Registros Modificados =>  (registro que tome tiempo_p0)
+
+	PUSH R26
+	IN R26, SREG
+	PUSH R26
+	INC R27; R27 -> tiempo_p0 (Al inicio)
+
+	;Se reinicia el valor inicial del timer
+	;valor_max=255, valor_10ms=10, valor_inicial=255-10=245
+	;LDI R26, 0xF5      ;valor_inicial
+	;STS TCNT1, R26
+	
+
+	POP R26
+	OUT SREG, R26
+	POP R26
+	RETI
+
 
 ;------------------------BCD2BIN7SEG----------------------
 ;Registros Modificados =>
 ;Registros de Entrada =>
+BIN2BCD7SEG:
+	PUSH R26
+	IN R26, SREG
+	PUSH R26
 
+CPI escrutinio, 0
+BRNE Esc_es_1
+no_valido:
+	CPI valor_del_display, 0
+	BRNE A
+	LDI DIG1, 0x77//n
+	LDI DIG2, 0xFF
+	LDI DIG3, 0xFF
+	RJMP DISP
+A:
+	CPI valor_del_display, 1
+	BRNE B
+	LDI DIG1, 0x08//A
+	LDI DIG2, 0xFF
+	LDI DIG3, 0xFF
+	RJMP DISP
+
+B:
+	CPI valor_del_display, 2
+	BRNE blanco
+	LDI DIG1, 0x00//B
+	LDI DIG2, 0xFF
+	LDI DIG3, 0xFF
+	RJMP DISP
+
+blanco:
+	CPI valor_del_display, 3
+	BRNE n
+	LDI DIG1, 0x03//blanco
+	LDI DIG2, 0xFF
+	LDI DIG3, 0xFF	
+	RJMP DISP
+
+n:
+	CPI valor_del_display, 4
+	BRNE no_elecciones
+	LDI DIG1, 0x2B//n
+	LDI DIG2, 0xFF
+	LDI DIG3, 0xFF
+	RJMP DISP
+
+no_elecciones:
+	CPI valor_del_display, 5
+	BRNE Cronometro_total
+	LDI DIG1, 0xFF//n
+	LDI DIG2, 0xFF
+	LDI DIG3, 0xFF
+	RJMP DISP
+
+Cronometro_total:
+	CPI valor_del_display,6
+	BRNE Cronometro_individual
+	MOV DIG1, cont_timer_total
+    CLR DIG2 ; Decenas =0
+	CLR DIG3 ; Centenas = 0
+
+CG_Loop1:
+    CPI DIG1, 10    ;Comprueba valor menor a 10
+    BRLO CG_Loop2		; Si ya no se tiene mas decenas procede a guardar los valores
+    SUBI DIG1,10
+    INC DIG2 ; Cuenta las decenas
+    RJMP CG_Loop1
+
+CG_Loop2: 
+    CPI DIG2, 10    ;Comprueba valor menor a 10
+    BRLO End_CG		; Si ya no se tiene mas centenas procede a guardar los valores
+    SUBI DIG2,10
+    INC DIG3 ; Cuenta las centenas
+	RJMP CG_Loop2
+End_CG:
+	RCALL Valores_BCD2SEG7 
+	RJMP DISP
+
+Cronometro_individual:
+	CPI valor_del_display,7
+	BRNE Sist_Bloqueado
+	MOV DIG1, cont_timer_individual
+    CLR DIG2 ; Decenas =0
+	CLR DIG3 ; Centenas = 0
+
+CI_Loop1:
+    CPI DIG1, 10    ;Comprueba valor menor a 10
+    BRLO CI_Loop2		; Si ya no se tiene mas decenas procede a guardar los valores
+    SUBI DIG1,10
+    INC DIG2 ; Cuenta las decenas
+    RJMP CI_Loop1
+
+CI_Loop2: 
+    CPI DIG2, 10    ;Comprueba valor menor a 10
+    BRLO End_CI		; Si ya no se tiene mas centenas procede a guardar los valores
+    SUBI DIG2,10
+    INC DIG3 ; Cuenta las centenas
+	RJMP CI_Loop2
+End_CI:
+	RCALL Valores_BCD2SEG7 
+	RJMP DISP
+
+Sist_Bloqueado:
+	CPI valor_del_display, 8
+	BRNE DISP
+	LDI DIG3, 0x3F//E
+	LDI DIG2, 0x3F//n
+	LDI DIG1, 0x3F//d
+	RJMP DISP
+
+Esc_es_1:
+Valor_ContA:
+	CPI valor_del_display, 0
+	BRNE Valor_ContB
+	MOV DIG1, contA
+    CLR DIG2 ; Decenas =0
+	CLR DIG3 ; Centenas = 0
+
+VCA_Loop1:
+    CPI DIG1, 10    ;Comprueba valor menor a 10
+    BRLO VCA_Loop2		; Si ya no se tiene mas decenas procede a guardar los valores
+    SUBI DIG1,10
+    INC DIG2 ; Cuenta las decenas
+    RJMP VCA_Loop1
+
+VCA_Loop2: 
+    CPI DIG2, 10    ;Comprueba valor menor a 10
+    BRLO End_VCA		; Si ya no se tiene mas centenas procede a guardar los valores
+    SUBI DIG2,10
+    INC DIG3 ; Cuenta las centenas
+	RJMP VCA_Loop2
+End_VCA:
+	RCALL Valores_BCD2SEG7 
+	RJMP DISP
+
+Valor_ContB:
+	CPI valor_del_display, 1
+	BRNE Valor_Contblanco
+	MOV DIG1, contB
+    CLR DIG2 ; Decenas =0
+	CLR DIG3 ; Centenas = 0
+
+VCB_Loop1:
+    CPI DIG1, 10    ;Comprueba valor menor a 10
+    BRLO VCB_Loop2		; Si ya no se tiene mas decenas procede a guardar los valores
+    SUBI DIG1,10
+    INC DIG2 ; Cuenta las decenas
+    RJMP VCB_Loop1
+
+VCB_Loop2: 
+    CPI DIG2, 10    ;Comprueba valor menor a 10
+    BRLO End_VCB		; Si ya no se tiene mas centenas procede a guardar los valores
+    SUBI DIG2,10
+    INC DIG3 ; Cuenta las centenas
+	RJMP VCB_Loop2
+End_VCB:
+	RCALL Valores_BCD2SEG7 
+	RJMP DISP
+
+Valor_Contblanco:
+	CPI valor_del_display, 2
+	BRNE Valor_Contn
+	MOV DIG1, contblanco
+    CLR DIG2 ; Decenas =0
+	CLR DIG3 ; Centenas = 0
+
+VCblanco_Loop1:
+    CPI DIG1, 10    ;Comprueba valor menor a 10
+    BRLO VCblanco_Loop2		; Si ya no se tiene mas decenas procede a guardar los valores
+    SUBI DIG1,10
+    INC DIG2 ; Cuenta las decenas
+    RJMP VCblanco_Loop1
+
+VCblanco_Loop2: 
+    CPI DIG2, 10    ;Comprueba valor menor a 10
+    BRLO End_VCblanco		; Si ya no se tiene mas centenas procede a guardar los valores
+    SUBI DIG2,10
+    INC DIG3 ; Cuenta las centenas
+	RJMP VCblanco_Loop2
+End_VCblanco:
+	RCALL Valores_BCD2SEG7 
+	RJMP DISP
+
+Valor_Contn:
+	CPI valor_del_display, 3
+	BRNE End
+	MOV DIG1, contn
+    CLR DIG2 ; Decenas =0
+	CLR DIG3 ; Centenas = 0
+
+VCn_Loop1:
+    CPI DIG1, 10    ;Comprueba valor menor a 10
+    BRLO VCn_Loop2		; Si ya no se tiene mas decenas procede a guardar los valores
+    SUBI DIG1,10
+    INC DIG2 ; Cuenta las decenas
+    RJMP VCn_Loop1
+
+VCn_Loop2: 
+    CPI DIG2, 10    ;Comprueba valor menor a 10
+    BRLO End_VCn		; Si ya no se tiene mas centenas procede a guardar los valores
+    SUBI DIG2,10
+    INC DIG3 ; Cuenta las centenas
+	RJMP VCn_Loop2
+End_VCn:
+	RCALL Valores_BCD2SEG7 
+	RJMP DISP
+
+End:
+	CPI valor_del_display, 4
+	BRNE Sist_Bloqueado_Esc1
+	LDI DIG3, 0x06//E
+	LDI DIG2, 0x2B//n
+	LDI DIG1, 0x21//d
+	RJMP DISP
+	
+Sist_Bloqueado_Esc1:
+	CPI valor_del_display, 8
+	BRNE DISP
+	LDI DIG3, 0x3F//E
+	LDI DIG2, 0x3F//n
+	LDI DIG1, 0x3F//d
+	RJMP DISP
+
+DISP:
+;Puertos de Salida: PD0, PD1, PD[4:7], PB[4:7]
+;PUERTO D[SegG, SegF, SegE, SegC, -, -, SegB, SegA]
+;PUERTO B[COM3, COM2, COM1, SegD, -, -, -, -]  
+
+;Mandando DIG1 al Display y habilitandolo
+	LDI R26, 0b01110000; Extraynedo los valores para SegG, SegF, SegE
+	AND R26, DIG1
+	LSL R26
+	LDI R30, 0b00000100; Extraynedo los valores para SegC
+	AND R30, DIG1
+	LSL R30
+	LSL R30
+	LDI R31, 0b00000011; Extraynedo los valores para SegB, SegA
+	AND R31, DIG1
+	ADD R26,R30 ;Juntando Valores extraidos
+	ADD R26,R31
+	OUT PORTD, R26; Mandando [SegG, SegF, SegE, SegC, 0, 0, SegB, SegA]
+	LDI R26, 0b00001000; Extrayendo valor de SegC 
+	AND R26, DIG1
+	LSL R26
+	LDI R30, 0b11000000; Para habilitar COM1 (Con 0 se habilita COM1 por los transistores)
+	ADD R26, R30
+	OUT PORTB, R26; Mandando [1,1,0,SegD,0,0,0,0]
+
+;Mandando DIG2 al Display y habilitandolo
+	LDI R26, 0b01110000; Extraynedo los valores para SegG, SegF, SegE
+	AND R26, DIG2
+	LSL R26
+	LDI R30, 0b00000100; Extraynedo los valores para SegC
+	AND R30, DIG2
+	LSL R30
+	LSL R30
+	LDI R31, 0b00000011; Extraynedo los valores para SegB, SegA
+	AND R31, DIG2
+	ADD R26,R30 ;Juntando Valores extraidos
+	ADD R26,R31
+	OUT PORTD, R26; Mandando [SegG, SegF, SegE, SegC, 0, 0, SegB, SegA]
+	LDI R26, 0b00001000; Extrayendo valor de SegC 
+	AND R26, DIG2
+	LSL R26
+	LDI R30, 0b10100000; Para habilitar COM2 (Con 0 se habilita COM2 por los transistores)
+	ADD R26, R30
+	OUT PORTB, R26; Mandando [1,0,1,SegD,0,0,0,0]
+
+;Mandando DIG3 al Display y habilitandolo
+	LDI R26, 0b01110000; Extraynedo los valores para SegG, SegF, SegE
+	AND R26, DIG3
+	LSL R26
+	LDI R30, 0b00000100; Extraynedo los valores para SegC
+	AND R30, DIG3
+	LSL R30
+	LSL R30
+	LDI R31, 0b00000011; Extraynedo los valores para SegB, SegA
+	AND R31, DIG3
+	ADD R26,R30 ;Juntando Valores extraidos
+	ADD R26,R31
+	OUT PORTD, R26; Mandando [SegG, SegF, SegE, SegC, 0, 0, SegB, SegA]
+	LDI R26, 0b00001000; Extrayendo valor de SegC 
+	AND R26, DIG3
+	LSL R26
+	LDI R30, 0b01100000; Para habilitar COM1 (Con 0 se habilita COM1 por los transistores)
+	ADD R26, R30
+	OUT PORTB, R26; Mandando [0,1,1,SegD,0,0,0,0]
+
+	POP R26
+	OUT SREG, R26
+	POP R26
+
+	RET
+
+;----------------Valores_BCD2SEG7---------------
+;Contiene los valores necesarios para mostrar numeros en el display
+	Valores_BCD2SEG7: 
+	PUSH R26
+	IN R26, SREG
+	PUSH R26
+	 
+   DIG1_0:
+	   CPI  DIG1, 0
+	   BRNE	DIG1_1
+	   LDI  DIG1, 0x40
+	   RJMP	DIG2_0
+   DIG1_1:
+	   CPI	DIG1, 1
+	   BRNE	DIG1_2
+	   LDI	DIG1, 0x79
+	   RJMP	DIG2_0
+   DIG1_2:
+	   CPI	DIG1, 2
+	   BRNE	DIG1_3
+	   LDI	DIG1, 0x24
+	   RJMP	DIG2_0
+   DIG1_3:
+	   CPI	DIG1, 3
+	   BRNE	DIG1_4
+	   LDI	DIG1, 0x30
+	   RJMP	DIG2_0
+	DIG1_4:
+	   CPI	DIG1, 4
+	   BRNE	DIG1_5
+	   LDI	DIG1,  0x19
+	   RJMP	DIG2_0
+	DIG1_5:
+	   CPI	DIG1, 5
+	   BRNE	DIG1_6
+	   LDI	DIG1, 0x12
+	   RJMP	DIG2_0
+	DIG1_6:
+	   CPI	DIG1, 6
+	   BRNE	DIG1_7
+	   LDI	DIG1, 0x02
+	   RJMP	DIG2_0
+	DIG1_7:
+	   CPI	DIG1, 7
+	   BRNE	DIG1_8
+	   LDI	DIG1, 0x78
+	   RJMP	DIG2_0
+	DIG1_8:
+	   CPI	DIG1, 8
+	   BRNE	DIG1_9
+	   LDI	DIG1, 0x00
+	   RJMP	DIG2_0
+	DIG1_9:
+	   CPI	DIG1, 9
+	   BRNE	DIG2_0
+	   LDI	DIG1, 0x10
+	   RJMP	DIG2_0
+
+	DIG2_0:
+	   CPI  DIG2, 0
+	   BRNE	DIG2_1
+	   LDI  DIG2, 0x40
+	   RJMP	DIG3
+   DIG2_1:
+	   CPI	DIG2, 1
+	   BRNE	DIG2_2
+	   LDI	DIG2, 0x79
+	   RJMP	DIG3
+   DIG2_2:
+	   CPI	DIG2, 2
+	   BRNE	DIG2_3
+	   LDI	DIG2, 0x24
+	   RJMP	DIG3
+   DIG2_3:
+	   CPI	DIG2, 3
+	   BRNE	DIG2_4
+	   LDI	DIG2, 0x30
+	   RJMP	DIG3
+	DIG2_4:
+	   CPI	DIG2, 4
+	   BRNE	DIG2_5
+	   LDI	DIG2,  0x19
+	   RJMP	DIG3
+	DIG2_5:
+	   CPI	DIG2, 5
+	   BRNE	DIG2_6
+	   LDI	DIG2, 0x12
+	   RJMP	DIG3
+	DIG2_6:
+	   CPI	DIG2, 6
+	   BRNE	DIG2_7
+	   LDI	DIG2, 0x02
+	   RJMP	DIG3
+	DIG2_7:
+	   CPI	DIG2, 7
+	   BRNE	DIG2_8
+	   LDI	DIG2, 0x78
+	   RJMP	DIG3
+	DIG2_8:
+	   CPI	DIG2, 8
+	   BRNE	DIG2_9
+	   LDI	DIG2, 0x00
+	   RJMP	DIG3
+	DIG2_9:
+	   CPI	DIG2, 9
+	   BRNE	DIG3
+	   LDI	DIG2, 0x10
+	   RJMP	DIG3
+
+	DIG3_0:
+	   CPI  DIG3, 0
+	   BRNE	DIG3_1
+	   LDI  DIG3, 0x40
+	   RJMP	Final_BCD2SEG7
+   DIG3_1:
+	   CPI	DIG3, 1
+	   BRNE	DIG3_2
+	   LDI	DIG3, 0x79
+	   RJMP	Final_BCD2SEG7
+   DIG3_2:
+	   CPI	DIG3, 2
+	   BRNE	DIG3_3
+	   LDI	DIG3, 0x24
+	   RJMP	Final_BCD2SEG7
+   DIG3_3:
+	   CPI	DIG3, 3
+	   BRNE	DIG3_4
+	   LDI	DIG3, 0x30
+	   RJMP	Final_BCD2SEG7
+	DIG3_4:
+	   CPI	DIG3, 4
+	   BRNE	DIG3_5
+	   LDI	DIG3,  0x19
+	   RJMP	Final_BCD2SEG7
+	DIG3_5:
+	   CPI	DIG3, 5
+	   BRNE	DIG3_6
+	   LDI	DIG3, 0x12
+	   RJMP	Final_BCD2SEG7
+	DIG3_6:
+	   CPI	DIG3, 6
+	   BRNE	DIG3_7
+	   LDI	DIG3, 0x02
+	   RJMP	Final_BCD2SEG7
+	DIG3_7:
+	   CPI	DIG3, 7
+	   BRNE	DIG3_8
+	   LDI	DIG3, 0x78
+	   RJMP	Final_BCD2SEG7
+	DIG3_8:
+	   CPI	DIG3, 8
+	   BRNE	DIG3_9
+	   LDI	DIG3, 0x00
+	   RJMP	Final_BCD2SEG7
+	DIG3_9:
+	   CPI	DIG3, 9
+	   BRNE	Final_BCD2SEG7
+	   LDI	DIG3, 0x10
+	   RJMP	Final_BCD2SEG7
+
+ Final_BCD2SEG7:
+	   POP R26
+	   OUT SREG, R26
+	   POP R26
+
+	   RET
+;===================================================================================
+;                       PROGRAMA PRINCIPAL (MAIN LOOP)
+;===================================================================================
 Main:
-    inc r16
-    rjmp Main
+    CPI veces_presionado_p0, 3
+	BRNE No_se_presiono_3_veces_p0
+		LDI habilitador_p0, 1
+		CPI XH, 150 ; XH = R27 -> total_de_votaciones
+		BRNE No_llego_a_XH
+			LDI escrutinio,1
+			LDI valor_del_display, 4
+			INC XH
+			LDI R26, 0b00000010
+			OUT EIMSK, R26; Deshabilitando interrupciones por SW
+			;Deshabilitar Timer_1s <=======================================================RIVERA
+		No_llego_a_XH:
+		CPI escrutinio, 0
+		BRNE escrutinio_no_es_igual_a_0
+			IN R26, PINB
+			LDI R30, 0b00001111
+			AND R26, R30 ; Para leer el valor de los puertos conectados a P1, P2, P3, P4
+			CPI R26, 0
+			BRNE R26, Hay_pulsadores_presionados;Pregunta si no hay pulsadores presionados
+				;condicion_display=0 <====================================================Falta Registro
+				CPI votacion, 0
+				BRNE habilitar_votacion_es_1
+					LDI valor_del_display, 6
+					RCALL BIN2BCD7SEG
+					RJMP escrutinio_no_es_igual_a_0
+				habilitar_votacion_es_1:
+					LDI valor_del_display, 7
+					RCALL BIN2BCD7SEG
+					RJMP Main
 
-
-
-.DSEG
-.ORG $100
-LUT_display:	.BYTE 16
-UNIDADES:		.BYTE 1
-DECENAS:		.BYTE 1
-CENTENAS:		.BYTE 1
-.EQU CONT_TIMER_GENERAL=3600
-.CSEG
-.DEF valor_display=R22
-.DEF habilitar_votacion=R16
-.DEF habilitador_p0=R19
-.DEF cronometro=R20
-.DEF total_de_votaciones=R21
-.DEF temp  = R24 ; Registro Temporal
-.DEF aux   = r17 ; Registro Auxiliar
-.DEF inout = r18 ; Registro de in/out para subrutinas
-.DEF DUB   = r25 ; Registro alternador entre Centenas, Decenas y Unidades
-
-.EQU  a = 7 ; PIND0
-.EQU  b = 6 ; PIND1
-.EQU  c = 5 ; PIND4
-.EQU  d = 4 ; PINB4
-.EQU  e = 3 ; PIND5
-.EQU  f = 2 ; PIND6
-.EQU  g = 1 ; PIND7
-
-.EQU DIG3 = 2 ; PINB7
-.EQU DIG2 = 1 ; PINB6
-.EQU DIG1 = 0 ; PINB5
-
-;.MACRO delay
-;	LDI R26,0x7F		;Set Register 
-;	LDI R27,0x3E		;Load immediate 
-;	LDI R28,0x00		;Load immediate 
-;	SUBI R26,0x01		;Subtract immediate 
-;	SBCI R27,0x00		;Subtract immediate with carry 
-;	SBCI R28,0x00		;Subtract immediate with carry 
-;	BRNE PC-0x03		;Branch if not equal 
-;	RJMP PC+0x0001		;Relative jump 
-;	NOP 				;No operation
-;.ENDMACRO
-
-main:
-	CLR temp
-	OUT PORTB, temp ; Set Outputs LOW, disable input pullups
-	OUT PORTD, temp ; Set Outputs LOW, disable input pullups
-
-
-	; Configurar Display 7 Segmentos
-	CALL init_7SEGMENT
-    
-inicio:
-
-	CALL disp_7SEGMENT
-	CPI Veces_presionado,3
-	BREQ loop
-	RJMP inicio
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-loop: 
-	SBI HabilitadorP0,0
-	CPI total_de_votaciones,150
-	BREQ loop_1
-	RET
-loop_1:
-	SBI Escrutinio,0
-	mov valor_display, 1 
-RET
-
-; SUBRUTINA init_7SEGMENT
-init_7SEGMENT:
-	; Guardar Registros y SREG
-	PUSH temp
-	IN temp, SREG
-	PUSH temp
-
-	; Cargar direccion del LUT en el puntero Z
-	LDI ZL, LOW(LUT_display)
-	LDI ZH, HIGH(LUT_display)
-	
-	; Guardar valores predefinidos del LUT en la RAM
-	LDI temp, 0x40	; valor para 0
-	ST Z+, temp
-	LDI temp, 0x79	; valor para 1
-	ST Z+, temp
-	LDI temp, 0x24	; valor para 2
-	ST Z+, temp
-	LDI temp, 0x30	; valor para 3
-	ST Z+, temp
-	LDI temp, 0x19	; valor para 4
-	ST Z+, temp
-	LDI temp, 0x12	; valor para 5
-	ST Z+, temp
-	LDI temp, 0x02	; valor para 6
-	ST Z+, temp
-	LDI temp, 0x78	; valor para 7
-	ST Z+, temp
-	LDI temp, 0x00	; valor para 8 y B
-	ST Z+, temp
-	LDI temp, 0x10	; valor para 9
-	ST Z+, temp
-	LDI temp, 0x06	; valor para E
-	ST Z+, temp
-	LDI temp, 0x2B	; valor para N y nulo
-	ST Z+, temp
-	LDI temp, 0x21	; valor para D
-	ST Z+, temp
-	LDI temp, 0x3F	; valor para -
-	ST Z+, temp
-	LDI temp, 0x8	; valor para A
-	ST Z+, temp
-	LDI temp, 0x3	; valor para blanco
-	ST Z+, temp
-	; DUB = 0
-	CLR DUB
-
-	; Recuperar registros y SREG
-	POP temp
-	OUT SREG, temp
-	POP temp
-
-	; FIN
-	RET
-
-; SUBRUTINA disp_7SEGMENT
-disp_7SEGMENT:
-	; Guardar Registros y SREG
-	PUSH temp
-	IN temp, SREG
-	PUSH temp
-	PUSH ZH
-	PUSH ZL
-	PUSH inout
-
-	; BIN2DEC
-	CALL BIN2DEC
-	
-	; Cargar Puntero en el registro Z
-	LDI ZL, LOW(LUT_display)
-	LDI ZH, HIGH(LUT_display)
-
-	; Determinar si se muestra centena, decena o unidad
-	SBRC DUB, 7
-	RJMP disp_centenas	; si DUB(7)=1				-> display centenas
-
-	SBRC DUB, 6
-	RJMP disp_decenas	; si DUB(7)=0 y DUB(6)=1	-> display decenas
-
-
-disp_unidades:				; else						-> display unidades
-	SBI PORTB, DIG3
-	SBI PORTB, DIG2
-	CBI PORTB, DIG1
-	LDS inout, UNIDADES
-	RJMP disp_mostrar
-
-disp_decenas:
-	SBI PORTB, DIG3
-	CBI PORTB, DIG2
-	SBI PORTB, DIG1
-	LDS inout, DECENAS
-	RJMP disp_mostrar
-
-disp_centenas:
-	CBI PORTB, DIG3
-	SBI PORTB, DIG2
-	SBI PORTB, DIG1
-	LDS inout, CENTENAS
-	RJMP disp_mostrar
-
-	; Display numero en 7 segmentos
-disp_mostrar:
-	; Encontrar direccion en la RAM
-	ANDI inout, 0x0F
-	ADD ZL, inout
-	
-	; Cargar valor en temp
-	LD temp, Z
-	;COM temp
-	
-	; Si se prende el segmento d, prenderlo, sino apagarlo (para el puerto B)
-	SBRC temp, d
-	SBI PORTB, 3
-	SBRS temp, d
-	CBI PORTB, 3
-
-	ANDI temp, 0xF3
-	OUT PORTD, temp
-	INC DUB
-
-disp_salida:
-	; Recuperar Registros y SREG
-	POP inout
-	POP ZL
-	POP ZH
-	POP temp
-	OUT SREG, temp
-	POP temp
-	RET
-
-; SUBRUTINA BIN2DEC
-BIN2DEC:
-	PUSH temp
-	IN temp, SREG
-	PUSH temp
-	PUSH aux
-	CPI Valor_display,1
-	BREQ BCD2BIN7SEG_TIMER_GENERAL
-	CPI Valor_display,2
-	BREQ BCD2BIN7SEG_TIMER_INDIVIDUAL
-
-	; Leer contador
-	IN temp, TCNT0
-	; Clear Centenas/Unidades
-	CLR aux
-	RET
-
-BCD2BIN7SEG_TIMER_GENERAL:
-BIN2DEC_centenas_general:
-	; Contador menor a 100?
-	CPI temp, 3600
-	BRLO BIN2DEC_centenas_fin_general
-
-	; Caso mayor a 100
-	SUBI temp, 3600
-	INC aux
-	RJMP BIN2DEC_centenas_general
-
-BIN2DEC_centenas_fin_general:
-	; Caso menor a 100
-	STS CENTENAS, aux
-	CLR aux
-
-BIN2DEC_decenas_general:
-	; Contador menor a 10?
-	CPI temp, 60
-	BRLO BIN2DEC_decenas_fin_general
-
-	; Caso mayor a 10
-	SUBI temp, 60
-	INC aux
-	RJMP BIN2DEC_decenas_general
-
-BIN2DEC_decenas_fin_general:
-	; Caso menor a 10
-	STS DECENAS, aux
-
-BIN2DEC_unidades_general:	
-	STS UNIDADES, temp
-
-BIN2DEC_salida_general:
-	POP aux
-	POP temp
-	OUT SREG, temp
-	POP temp
-	RET
-
-	BCD2BIN7SEG_TIMER_INDIVIDUAL:
-BIN2DEC_centenas_individual:
-	; Contador menor a 100?
-	CPI temp, 100
-	BRLO BIN2DEC_centenas_fin_individual
-
-	; Caso mayor a 100
-	SUBI temp, 100
-	INC aux
-	RJMP BIN2DEC_centenas_individual
-
-BIN2DEC_centenas_fin_individual:
-	; Caso menor a 100
-	STS CENTENAS, aux
-	CLR aux
-
-BIN2DEC_decenas_individual:
-	; Contador menor a 10?
-	CPI temp, 10
-	BRLO BIN2DEC_decenas_fin_individual
-
-	; Caso mayor a 10
-	SUBI temp, 10
-	INC aux
-	RJMP BIN2DEC_decenas_individual
-
-BIN2DEC_decenas_fin_individual:
-	; Caso menor a 10
-	STS DECENAS, aux
-
-BIN2DEC_unidades_individual:	
-	STS UNIDADES, temp
-
-BIN2DEC_salida_individual:
-	POP aux
-	POP temp
-	OUT SREG, temp
-	POP temp
-	RET
-
+			Hay_pulsadores_presionados:
+				CPI habilitar_votacion, 0
+				BRNE habilitador_vot_es_1
+					LDI valor_del_display, 0
+					RCALL BIN2BCD7SEG
+				habilitador_vot_es_1:
+				CPI condicion_display, 1
+				BRNE condicion_disp_no_es_1
+					RJMP Main
+				condicion_disp_no_es_1:
+					INC condicion_display
+					RCALL BIN2BCD7SEG.
+		escrutinio_no_es_igual_a_0:
+			RCALL BIN2BCD7SEG
+			RJMP Main
+	No_se_presiono_3_veces_p0:
+		RCALL BIN2BCD7SEG
+		RJMP Main
