@@ -10,6 +10,7 @@
 ; 
 ;==========================================================================
 .CSEG
+;.DEF Banderas=R16 --> [habilitar_votacion, escrutinio, habilitador_p0, condicion_display,0,0,veces_presionado_p0(1),veces_presionado_p0(0)]) <===CAMBIAR A ESTO
 .DEF habilitar_votacion=R16
 .DEF veces_presionado_p0=R17
 .DEF escrutinio=R18
@@ -32,8 +33,8 @@
 ; ValorADC_LOW=R28
 
 ;Vector de interrupciones
-;.ORG 0x00  <======================= SALE ERROR
-	;RESET
+.ORG 0x00 
+	JMP Inicio
 .ORG 0x1A
    	JMP Timer_1s_ISR 
 .ORG 0x0002
@@ -45,7 +46,7 @@
 	JMP P2_ISR
 	JMP P3_ISR
 	JMP P4_ISR
-.ORG 0x2A
+.ORG 0x002A
 	JMP ISR_ADC
 
 .ORG 0x0034
@@ -66,11 +67,10 @@ Inicio:
 	LDI R26, 0b11110000
 	OUT DDRB, R26
 	
-	LDI R26, 0b00000001
+	LDI R26, 0b00000000
 	OUT DDRC, R26
 
 ;========== Inicialización de variables ============
-
 Definicion_RAM_Display:
 	LDI ZH, HIGH(0x100)
 	LDI ZL, LOW(0x100)
@@ -78,6 +78,7 @@ Definicion_RAM_Display:
 Definicion_RAM_Timer_General:
 	LDI R26, 60
 	ST Z, R26	//R26="D"   guarda _ en 0x100
+
 ;=========Configuracion de Interrupciones===========
 ;P0_ISR
 
@@ -94,11 +95,11 @@ Definicion_RAM_Timer_General:
 ;--------------------ADC_ISR------------------------
 ;ADMUX: ADC Multiplexor Selection Register 
 ;	[REFS1, REFS2, ADLAR, - , MUX3, MUX2, MUX1, MUX0] 
-;	* REFS[1:0]= 11 --> Volt Interno 1.1V con capacitor en pin AREF
+;	* REFS[1:0]= 01 --> AVcc con capacitor en pin AREF
 ;	* ADLAR= 0 --> Se quiere 10 bits de presicion
 ;	* MUX[3:0]= 0000 --> Usar la entrada ADC0
-	LDI R16, 0b11000000
-	STS ADMUX, R16
+	LDI R26, 0b01000000
+	STS ADMUX, R26
 
 ;ADCSRA: ADC Control and Status Register A 
 ;	[ADEN, ADSC, ADATE, ADIF, ADIE, ADPS2, ADPS1, ADPS0] 
@@ -107,16 +108,19 @@ Definicion_RAM_Timer_General:
 ;	* ADATE= 1 --> Activar autotriggering
 ;	* ADIF --> Interrupt Flag (No se quiere escribir)
 ;	* ADIE = 1 -> Activar interrupcion
-;	* ADPS[2:0] = 000 --> Factor de Prescaler=2
-	LDI R16, 0b11101000
-	STS ADCSRA, R16
+;	* ADPS[2:0] = 000 --> Factor de Prescaler=128
+	LDI R26, 0b11101111
+	STS ADCSRA, R26
 
 ;ADCSRB: ADC Control and Status Register B
 ;	[-, ACME , -, -, -, ADTS2, ADTS1, ADTS0] 
-;	* ACME = 1 --> Nose si esta bien PREGUNTAR
-;	* ADPS[2:0] = 000 --> Free Running Mode
-	LDI R16, 0b01000000; Porque el registro guarda el valor 0
-	STS ADCSRB, R16 
+;	* ACME = 0
+;	* ADTS[2:0] = 000 --> Free Running Mode
+	LDI R26, 0b00000000; Porque el registro guarda el valor 0
+	STS ADCSRB, R26 
+
+	LDI R26,0b00000001; Para deshabilitar el Buffer para el ADC0
+	STS DIDR0, R26
 
 ;------------------Timer_1s_ISR------------------------
 ; Configuracion de registros del Timer_1
@@ -190,26 +194,25 @@ ISR_ADC	:
 	IN R26, SREG
 	PUSH R26
 
-	LDS YH, ADCH ;R29 -> ValorADC_HIGH
 	LDS YL, ADCL ;R28 -> ValorADC_LOW
-	
+	LDS YH, ADCH ;R29 -> ValorADC_HIGH
+
+    CPI YH, 0x01
+	BRLO LED1
 	CPI YH, 0x01
-	BRSH MayorA2V
-	CPI YL, 0xAF
-	BRSH MayorA2V
+	BREQ ADC_LOOP1
+	RJMP LED0
 
-	CLR R26
-	STS PCMSK0, R26; Deshabilitando interrupciones por PCINT0, PCINT1, PCINT2 y PCINT3 (P1, P2, P3, P4)
-	CLR R26
-	OUT EIMSK, R26; Deshabilitando interrupciones por INT0 y INT1 (P0, SW)
-	;falta agregar valor_display=8;
-	RJMP ISR_ADC_End
+ADC_LOOP1:
+	CPI YL, 0xD7
+	BRLO LED1
+	RJMP LED0
 
-MayorA2V:
+LED0:;SIST NO BLOQUEADO
 	LDI R26, 0b00001111
-	STS PCMSK0, R26; Deshabilitando interrupciones por PCINT0, PCINT1, PCINT2 y PCINT3 (P1, P2, P3, P4)
+	STS PCMSK0, R26; Habilitando interrupciones por PCINT00, PCINT01, PCINT02 y PCINT03 (P1, P2, P3, P4)
 	LDI R26, 0b00000010
-	OUT EIMSK, R26; Deshabilitando interrupciones por INT0 y INT1 (P0, SW)
+	OUT EIMSK, R26; Habilitando interrupciones por INT0 y INT1 (P0, SW)
 
 	CPI escrutinio, 0
 	BRNE deshabilitar_SW
@@ -220,12 +223,22 @@ MayorA2V:
 deshabilitar_SW:
 	LDI R26, 0b00000010	 
 	OUT EIMSK, R26;
+	RJMP ISR_ADC_End
+
+LED1:;SIST SI BLOQUEADO
+	CLR R26
+	STS PCMSK0, R26; Deshabilitando interrupciones por PCINT0, PCINT1, PCINT2 y PCINT3 (P1, P2, P3, P4)
+	CLR R26
+	OUT EIMSK, R26; Deshabilitando interrupciones por INT0 y INT1 (P0, SW)
+	;falta agregar valor_display=8;
+	RJMP ISR_ADC_End
 
 ISR_ADC_End:
 	POP R26
 	OUT SREG, R26
 	POP R26
 	RETI
+
 ;---------------------ISR_Timer_1s------------------------
 ; Registros Modificados => cronomtero = cont_timer_individual, ZL, ZH
 ; Registros de Entrada => R26
